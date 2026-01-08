@@ -21,12 +21,16 @@ symbols = {
 }
 
 data = {}
+
 for name, ticker in symbols.items():
-    s = yf.download(ticker, period="1y", interval="1d", progress=False)
-    close = s["Close"]
-    ma50 = close.rolling(50).mean().iloc[-1]
-    ma200 = close.rolling(200).mean().iloc[-1]
-    price = close.iloc[-1]
+    df = yf.download(ticker, period="1y", interval="1d", progress=False)
+
+    close = df["Close"]
+
+    price = float(close.iloc[-1])
+    ma50 = float(close.rolling(50).mean().iloc[-1])
+    ma200 = float(close.rolling(200).mean().iloc[-1])
+
     data[name] = {
         "price": price,
         "ma50": ma50,
@@ -39,23 +43,25 @@ for name, ticker in symbols.items():
 sp = data["S&P500"]
 nas = data["NASDAQ"]
 
-market = ""
-arrow = ""
+sp_price = float(sp["price"])
+sp_ma50 = float(sp["ma50"])
+sp_ma200 = float(sp["ma200"])
 
-if (
-    sp["price"] < sp["ma200"]
-    and nas["price"] < nas["ma200"]
-):
+nas_price = float(nas["price"])
+nas_ma50 = float(nas["ma50"])
+nas_ma200 = float(nas["ma200"])
+
+if sp_price < sp_ma200 and nas_price < nas_ma200:
     market = "📉 하락장"
     arrow = "🔵"
+
 elif (
-    sp["price"] > sp["ma200"]
-    and nas["price"] > nas["ma200"]
-    and sp["price"] > sp["ma50"]
-    and nas["price"] > nas["ma50"]
+    sp_price > sp_ma200 and nas_price > nas_ma200
+    and sp_price > sp_ma50 and nas_price > nas_ma50
 ):
     market = "📈 상승장"
     arrow = "🔴"
+
 else:
     market = "⚠️ 전환기"
     arrow = "🟡"
@@ -68,21 +74,21 @@ if market == "📉 하락장":
         "▪️ 신규 매수 중단\n"
         "▪️ 모으기 금액 50% 축소\n"
         "▪️ 현금 비중 최소 50% 유지\n"
-        "▪️ 손절은 -20% 이상 종목만 부분 검토"
+        "▪️ -20% 이상 종목만 부분 손절 검토"
     )
 
 elif market == "⚠️ 전환기":
     action = (
         "▪️ 모으기 유지 또는 30% 축소\n"
-        "▪️ 추가 매수는 없음\n"
-        "▪️ 손절 / 익절 모두 대기"
+        "▪️ 추가 매수 없음\n"
+        "▪️ 손절·익절 모두 대기"
     )
 
-else:  # 상승장
+else:
     action = (
         "▪️ 모으기 정상 유지\n"
-        "▪️ 수익 +25% 초과 종목: 20~30% 부분 익절\n"
-        "▪️ 신규 자금은 분할로만 진입"
+        "▪️ +25% 이상 종목: 20~30% 부분 익절\n"
+        "▪️ 신규 자금은 3~5회 분할 진입"
     )
 
 # =====================
@@ -92,14 +98,14 @@ msg = f"""
 📊 시장 상태 알림 (미국장 기준)
 
 S&P500
-현재가: {sp['price']:.2f}
-MA50: {sp['ma50']:.2f}
-MA200: {sp['ma200']:.2f}
+현재가: {sp_price:.2f}
+MA50: {sp_ma50:.2f}
+MA200: {sp_ma200:.2f}
 
 NASDAQ
-현재가: {nas['price']:.2f}
-MA50: {nas['ma50']:.2f}
-MA200: {nas['ma200']:.2f}
+현재가: {nas_price:.2f}
+MA50: {nas_ma50:.2f}
+MA200: {nas_ma200:.2f}
 
 ━━━━━━━━━━━━
 {arrow} 현재 판단: {market}
@@ -109,6 +115,6 @@ MA200: {nas['ma200']:.2f}
 """
 
 # =====================
-# 5. 알림 전송
+# 5. 텔레그램 전송
 # =====================
 send(msg.strip())
