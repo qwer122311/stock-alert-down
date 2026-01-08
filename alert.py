@@ -2,119 +2,100 @@ import yfinance as yf
 import requests
 import os
 
+# =====================
+# 텔레그램 설정
+# =====================
 TG_TOKEN = os.environ["TG_TOKEN"]
 TG_CHAT_ID = os.environ["TG_CHAT_ID"]
 
 def send(msg):
     url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
-    requests.post(url, data={
-        "chat_id": TG_CHAT_ID,
-        "text": msg
-    })
+    requests.post(
+        url,
+        data={
+            "chat_id": TG_CHAT_ID,
+            "text": msg
+        },
+        timeout=10
+    )
 
 # =====================
-# 1. 시장 데이터 수집
+# 시장 데이터 (S&P500 기준)
 # =====================
-symbols = {
-    "S&P500": "^GSPC",
-    "NASDAQ": "^IXIC"
-}
+ticker = "^GSPC"
+df = yf.download(ticker, period="1y", interval="1d", progress=False)
 
-data = {}
+close = df["Close"]
 
-for name, ticker in symbols.items():
-    df = yf.download(ticker, period="1y", interval="1d", progress=False)
+price = float(close.iloc[-1])
+ma50 = float(close.rolling(50).mean().iloc[-1])
+ma200 = float(close.rolling(200).mean().iloc[-1])
 
-    close = df["Close"]
-
-    price = float(close.iloc[-1])
-    ma50 = float(close.rolling(50).mean().iloc[-1])
-    ma200 = float(close.rolling(200).mean().iloc[-1])
-
-    data[name] = {
-        "price": price,
-        "ma50": ma50,
-        "ma200": ma200
-    }
+# 최근 5일 MA50 위에 있었던 일수
+recent_close = close.iloc[-5:]
+recent_ma50 = close.rolling(50).mean().iloc[-5:]
+above_ma50_days = int((recent_close > recent_ma50).sum())
 
 # =====================
-# 2. 시장 상태 판단
+# 시장 국면 판단 + 행동 강령
 # =====================
-sp = data["S&P500"]
-nas = data["NASDAQ"]
-
-sp_price = float(sp["price"])
-sp_ma50 = float(sp["ma50"])
-sp_ma200 = float(sp["ma200"])
-
-nas_price = float(nas["price"])
-nas_ma50 = float(nas["ma50"])
-nas_ma200 = float(nas["ma200"])
-
-if sp_price < sp_ma200 and nas_price < nas_ma200:
-    market = "📉 하락장"
-    arrow = "🔵"
-
-elif (
-    sp_price > sp_ma200 and nas_price > nas_ma200
-    and sp_price > sp_ma50 and nas_price > nas_ma50
-):
-    market = "📈 상승장"
-    arrow = "🔴"
-
+if price < ma200:
+    if price > ma50 and above_ma50_days >= 5:
+        phase = "🟠 하락장 종료 확인"
+        action = (
+            "✔ 추가 자금 30만 원 투입\n"
+            "✔ 10만 원 × 3회 분할\n"
+            "✔ 매수 종목: NVDA / Eaton / Vertiv\n"
+            "✔ 공격적이지 않게 분할 유지"
+        )
+    elif price > ma50:
+        phase = "🟡 하락장 종료 신호"
+        action = (
+            "✔ 시험 매수 시작\n"
+            "✔ 20만 원 사용\n"
+            "✔ 10만 원 × 2회 분할\n"
+            "✔ NVDA 우선 매수"
+        )
+    else:
+        phase = "🔵 하락장 지속"
+        action = (
+            "✔ 신규 매수 ❌\n"
+            "✔ 모으기 금액 50% 축소 유지\n"
+            "✔ 현금 비중 최소 50% 유지"
+        )
 else:
-    market = "⚠️ 전환기"
-    arrow = "🟡"
-
-# =====================
-# 3. 행동 강령
-# =====================
-if market == "📉 하락장":
+    phase = "🔴 상승 전환 확정"
     action = (
-        "▪️ 신규 매수 중단\n"
-        "▪️ 모으기 금액 50% 축소\n"
-        "▪️ 현금 비중 최소 50% 유지\n"
-        "▪️ -20% 이상 종목만 부분 손절 검토"
-    )
-
-elif market == "⚠️ 전환기":
-    action = (
-        "▪️ 모으기 유지 또는 30% 축소\n"
-        "▪️ 추가 매수 없음\n"
-        "▪️ 손절·익절 모두 대기"
-    )
-
-else:
-    action = (
-        "▪️ 모으기 정상 유지\n"
-        "▪️ +25% 이상 종목: 20~30% 부분 익절\n"
-        "▪️ 신규 자금은 3~5회 분할 진입"
+        "✔ 남은 자금 50만 원 투입\n"
+        "✔ 10만 원 × 5회 분할\n\n"
+        "매수 비중:\n"
+        "- NVDA: 20만 원\n"
+        "- Eaton: 15만 원\n"
+        "- Vertiv: 10만 원\n"
+        "- PEP: 5만 원\n\n"
+        "익절 규칙:\n"
+        "+25% → 20% 익절\n"
+        "+40% → 추가 20% 익절"
     )
 
 # =====================
-# 4. 메시지 구성
+# 알림 메시지
 # =====================
 msg = f"""
-📊 시장 상태 알림 (미국장 기준)
+📊 미국 시장 자동 판단 알림
 
-S&P500
-현재가: {sp_price:.2f}
-MA50: {sp_ma50:.2f}
-MA200: {sp_ma200:.2f}
-
-NASDAQ
-현재가: {nas_price:.2f}
-MA50: {nas_ma50:.2f}
-MA200: {nas_ma200:.2f}
+S&P500 현재가: {price:.2f}
+MA50: {ma50:.2f}
+MA200: {ma200:.2f}
 
 ━━━━━━━━━━━━
-{arrow} 현재 판단: {market}
+현재 국면: {phase}
 
-🧭 오늘의 행동 강령
+🧭 오늘의 행동 지침
 {action}
 """
 
 # =====================
-# 5. 텔레그램 전송
+# 전송
 # =====================
 send(msg.strip())
